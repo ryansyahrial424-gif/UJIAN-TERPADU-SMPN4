@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Cache-Control" content="no-store"><title>Menghubungkan Portal Guru SMPN4</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f1f5f9;color:#102b50;font-family:Arial,sans-serif}.card{width:min(100%,440px);padding:30px;border:1px solid #dbe4ee;border-radius:22px;background:#fff;box-shadow:0 20px 60px #102b5018;text-align:center}.spinner{width:42px;height:42px;margin:0 auto 18px;border:4px solid #dbeafe;border-top-color:#0866c6;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}h1{font-size:21px;margin:0 0 10px}p{font-size:14px;line-height:1.65;color:#64748b;margin:0}#error{display:none;margin-top:16px;padding:12px;border-radius:12px;background:#fff1f2;color:#be123c;text-align:left;font-size:13px;line-height:1.6}a{display:inline-block;margin-top:18px;color:#0866c6;font-weight:700;text-decoration:none}</style></head>
+<body><main class="card"><div class="spinner" id="spinner"></div><h1 id="title">Menghubungkan akun Guru…</h1><p id="message">Memverifikasi sesi Portal Guru SMP Negeri 4 Praya. Halaman akan terbuka otomatis setelah berhasil.</p><div id="error" role="alert"></div><a id="back" href="https://smpn4praya.web.id/guru/dashboard" style="display:none">Kembali ke Portal Guru</a></main>
+<script>
+(async function(){
+ const API_URL='https://tpyjkxbseblvemqyuapb.supabase.co/functions/v1/clever-api';
+ const PUBLIC_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRweWpreGJzZWJsdmVtcXl1YXBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxNjA0NjMsImV4cCI6MjEwNzczNjQ2M30.YmMsToqfArlPWeCFKW8svGLLmmQtdXOCxDln6-x4A-o';
+ const params=new URLSearchParams(location.hash.slice(1));const ssoToken=params.get('sso')||'';
+ history.replaceState(null,'',location.pathname+location.search);
+ const fail=(message)=>{document.getElementById('spinner').style.display='none';document.getElementById('title').textContent='Login Guru belum dapat dilanjutkan';document.getElementById('message').textContent='Kembali ke Portal Guru SMPN4 dan buka kembali menu Ujian Online.';document.getElementById('error').textContent=message;document.getElementById('error').style.display='block';document.getElementById('back').style.display='inline-block';};
+ if(!ssoToken){fail('Tautan SSO tidak ditemukan atau sudah digunakan.');return;}
+ try{
+  const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json','apikey':PUBLIC_KEY,'Authorization':`Bearer ${PUBLIC_KEY}`},body:JSON.stringify({action:'teacher-sso-login',sso_token:ssoToken}),cache:'no-store',referrerPolicy:'no-referrer'});
+  const data=await response.json().catch(()=>null);
+  if(!response.ok||!data||data.ok!==true||!data.session_token)throw new Error(data&&data.message?data.message:`Verifikasi SSO gagal (HTTP ${response.status}).`);
+  sessionStorage.setItem('SUPABASE_TEACHER_SESSION',data.session_token);sessionStorage.setItem('TEACHER_SESSION',data.session_token);sessionStorage.setItem('SMPN4_GURU_ROLE',data.role||'teacher');sessionStorage.setItem('SMPN4_GURU_ASSIGNMENTS',JSON.stringify(data.assignments||[]));location.replace('/guru.html');
+ }catch(error){fail(error instanceof Error?error.message:'Terjadi kesalahan saat menghubungkan akun.');}
+})();
+</script></body></html>
