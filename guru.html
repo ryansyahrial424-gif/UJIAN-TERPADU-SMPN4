@@ -2092,7 +2092,12 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     const scheduleToolbar = document.querySelector('#submenu-jadwal .schedule-toolbar');
     if (scheduleToolbar) scheduleToolbar.style.display = 'none';
     document.querySelectorAll('#submenu-jadwal .schedule-actions button').forEach((button, index) => { if (index !== 1) button.style.display = 'none'; });
-    document.querySelectorAll('#submenu-jadwal .schedule-table th:last-child, #submenu-jadwal .schedule-table td:last-child, #blacklistTable th:last-child, #blacklistTable td:last-child').forEach(cell => cell.style.display = 'none');
+    if (!document.getElementById('teacher-readonly-style')) {
+      const readOnlyStyle = document.createElement('style');
+      readOnlyStyle.id = 'teacher-readonly-style';
+      readOnlyStyle.textContent = '#submenu-jadwal .schedule-table th:last-child,#submenu-jadwal .schedule-table td:last-child,#blacklistTable th:last-child,#blacklistTable td:last-child{display:none!important}';
+      document.head.appendChild(readOnlyStyle);
+    }
     const blacklistNote = document.querySelector('#submenu-siswa .status-text');
     if (blacklistNote) blacklistNote.textContent = 'Daftar blokir hanya dapat dilihat untuk kelas yang menjadi penugasan Anda. Pembukaan blokir dilakukan oleh Admin sekolah.';
     const classSelect = document.getElementById('bsClass');
