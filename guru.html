@@ -2082,13 +2082,19 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     sessionStorage.setItem('SMPN4_GURU_ROLE', role);
     sessionStorage.setItem('SMPN4_GURU_ASSIGNMENTS', JSON.stringify(assignments));
     if (role === 'admin') return;
-    ['token', 'jadwal', 'siswa'].forEach(menu => {
+    ['token'].forEach(menu => {
       const button = document.querySelector(`.dashboard-menu-btn[data-menu="${menu}"]`);
       const section = document.getElementById(`submenu-${menu}`);
       if (button) button.style.display = 'none';
       if (section) section.style.display = 'none';
     });
     document.querySelectorAll('[onclick="syncAllBankSoalNow()"]').forEach(button => button.style.display = 'none');
+    const scheduleToolbar = document.querySelector('#submenu-jadwal .schedule-toolbar');
+    if (scheduleToolbar) scheduleToolbar.style.display = 'none';
+    document.querySelectorAll('#submenu-jadwal .schedule-actions button').forEach((button, index) => { if (index !== 1) button.style.display = 'none'; });
+    document.querySelectorAll('#submenu-jadwal .schedule-table th:last-child, #submenu-jadwal .schedule-table td:last-child, #blacklistTable th:last-child, #blacklistTable td:last-child').forEach(cell => cell.style.display = 'none');
+    const blacklistNote = document.querySelector('#submenu-siswa .status-text');
+    if (blacklistNote) blacklistNote.textContent = 'Daftar blokir hanya dapat dilihat untuk kelas yang menjadi penugasan Anda. Pembukaan blokir dilakukan oleh Admin sekolah.';
     const classSelect = document.getElementById('bsClass');
     const subjectSelect = document.getElementById('bsSubject');
     const allowedClasses = [...new Set(assignments.map(item => String(item.className || '').trim()).filter(Boolean))];
@@ -2491,6 +2497,14 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
         });
       });
       scheduleRows.sort((a,b) => (a.date+a.start).localeCompare(b.date+b.start));
+      if (sessionStorage.getItem('SMPN4_GURU_ROLE') === 'teacher') {
+        let assignments = [];
+        try { assignments = JSON.parse(sessionStorage.getItem('SMPN4_GURU_ASSIGNMENTS') || '[]'); } catch (_) {}
+        if (!assignments.some(item => item.assignmentType === 'homeroom')) {
+          const allowedSubjects = new Set(assignments.filter(item => item.assignmentType === 'subject_teacher').map(item => String(item.subject || '').trim().toLowerCase()));
+          scheduleRows = scheduleRows.filter(row => allowedSubjects.has(String(row.subject || '').trim().toLowerCase()));
+        }
+      }
       const grace = document.getElementById('loginGraceMinutes'); if (grace) grace.value = Number(data.loginGraceMinutes ?? data.minutes ?? 20);
       renderScheduleRows();
       const status = document.getElementById('scheduleAdminStatus'); if (status) status.textContent = 'Jadwal berhasil dimuat dari Supabase.';
