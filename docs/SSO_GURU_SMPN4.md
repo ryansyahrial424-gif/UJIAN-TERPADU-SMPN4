@@ -51,7 +51,8 @@ Jangan memasang secret ini pada project SMPN5.
 
 ## Hak akses
 
-- Guru: daftar nilai, sesi aktif, ringkasan kehadiran, daftar blokir baca-saja, dan bank soal/pengaturan soal hanya pada kelas/mapel yang ditugaskan.
+- Guru: daftar nilai, sesi aktif, ringkasan kehadiran, jadwal baca-saja, daftar blokir baca-saja, dan bank soal/pengaturan soal hanya pada kelas/mapel yang ditugaskan.
+- Guru tidak dapat mengubah token, mengedit jadwal global, atau membuka blokir siswa; tindakan tersebut tetap menjadi kewenangan Admin.
 - Admin: akses penuh ke fitur dashboard ujian.
 - Aksi global seperti mengubah token dan jadwal tetap khusus Admin.
 - Penugasan guru yang dinonaktifkan akan berlaku pada sesi login berikutnya; sesi SSO yang sudah diterbitkan berakhir maksimal 60 menit.
