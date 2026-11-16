@@ -708,9 +708,8 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     <div class="auth-box">
       <div class="auth-lock"><i class="fa-solid fa-shield-halved"></i></div>
       <h2>Akses Guru</h2>
-      <p>Masukkan PIN guru untuk membuka panel kontrol, daftar nilai, pengaturan token, dan daftar siswa yang diblokir.</p>
-      <input id="teacherPin" class="form-control" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN Guru" onkeydown="if(event.key==='Enter') teacherLogin()">
-      <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="teacherLogin()"><i class="fa-solid fa-right-to-bracket"></i> Masuk</button>
+      <p>Dashboard ini hanya dapat dibuka melalui login resmi Portal Guru SMP Negeri 4 Praya. PIN bersama tidak lagi digunakan.</p>
+      <a class="btn btn-primary" style="display:block;width:100%;margin-top:14px;text-decoration:none;" href="https://smpn4praya.web.id/guru/login"><i class="fa-solid fa-right-to-bracket"></i> Masuk melalui Portal Guru</a>
       <div id="authStatus" class="auth-status"></div>
     </div>
   </div>
@@ -1982,14 +1981,12 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     document.getElementById('authGate').style.display = 'flex';
     document.getElementById('dashboardContent').style.display = 'none';
     if (message) document.getElementById('authStatus').innerText = message;
-    setTimeout(() => document.getElementById('teacherPin').focus(), 50);
   }
 
   function hideAuthGate() {
     document.getElementById('authGate').style.display = 'none';
     document.getElementById('dashboardContent').style.display = 'block';
     document.getElementById('authStatus').innerText = '';
-    document.getElementById('teacherPin').value = '';
   }
 
   // Membuka/menutup submenu dashboard tanpa mengubah fungsi data atau server.
@@ -2077,6 +2074,40 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     showAuthGate('Sesi guru telah ditutup.');
   }
 
+  function applyTeacherRolePermissions(data) {
+    const role = data.role || sessionStorage.getItem('SMPN4_GURU_ROLE') || 'teacher';
+    const assignments = Array.isArray(data.assignments) ? data.assignments : (() => {
+      try { return JSON.parse(sessionStorage.getItem('SMPN4_GURU_ASSIGNMENTS') || '[]'); } catch (_) { return []; }
+    })();
+    sessionStorage.setItem('SMPN4_GURU_ROLE', role);
+    sessionStorage.setItem('SMPN4_GURU_ASSIGNMENTS', JSON.stringify(assignments));
+    if (role === 'admin') return;
+    ['token', 'jadwal', 'siswa'].forEach(menu => {
+      const button = document.querySelector(`.dashboard-menu-btn[data-menu="${menu}"]`);
+      const section = document.getElementById(`submenu-${menu}`);
+      if (button) button.style.display = 'none';
+      if (section) section.style.display = 'none';
+    });
+    document.querySelectorAll('[onclick="syncAllBankSoalNow()"]').forEach(button => button.style.display = 'none');
+    const classSelect = document.getElementById('bsClass');
+    const subjectSelect = document.getElementById('bsSubject');
+    const allowedClasses = [...new Set(assignments.map(item => String(item.className || '').trim()).filter(Boolean))];
+    const hasHomeroom = assignments.some(item => item.assignmentType === 'homeroom');
+    const allowedSubjects = [...new Set(assignments.filter(item => item.assignmentType === 'subject_teacher').map(item => String(item.subject || '').trim().toLowerCase()).filter(Boolean))];
+    if (classSelect) {
+      [...classSelect.options].forEach(option => { if (!allowedClasses.includes(option.value || option.textContent.trim())) option.remove(); });
+      if (classSelect.options.length) classSelect.value = classSelect.options[0].value || classSelect.options[0].textContent.trim();
+      classSelect.disabled = classSelect.options.length === 0;
+    }
+    if (subjectSelect && !hasHomeroom) {
+      [...subjectSelect.options].forEach(option => { if (!allowedSubjects.includes(String(option.value || '').trim().toLowerCase())) option.remove(); });
+      if (subjectSelect.options.length) subjectSelect.value = subjectSelect.options[0].value;
+      subjectSelect.disabled = subjectSelect.options.length === 0;
+    }
+    const status = document.getElementById('bankSoalStatus');
+    if (status && !allowedClasses.length) status.textContent = 'Akun ini belum memiliki penugasan kelas aktif. Hubungi Admin sekolah.';
+  }
+
   async function verifyTeacherSession() {
     try {
       supabaseTeacherSession = supabaseTeacherSession || sessionStorage.getItem('SUPABASE_TEACHER_SESSION') || '';
@@ -2084,6 +2115,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       if (!supabaseTeacherSession) throw new Error('Sesi guru tidak ditemukan.');
       const data = await callSupabaseTeacherApi('teacher-verify-session', {});
       if (!data.valid) throw new Error('Sesi guru Supabase tidak valid.');
+      applyTeacherRolePermissions(data);
       hideAuthGate(); window.dashboardAllowMenuFetch = false; toggleDashboardMenu('panel'); window.dashboardAllowMenuFetch = true;
       fetchLiveResults(); fetchActiveExamSessions(); startDashboardSync();
     } catch (err) {
