@@ -728,6 +728,7 @@ body::after {
       </div>
       <div id="questionContainer" class="notranslate" translate="no">
         <div id="sectionBadge" class="badge-section">Bagian A: Pilihan Ganda</div>
+        <div id="questionNumber" class="notranslate" translate="no" style="display:block;font-size:.88rem;font-weight:800;color:#2563eb;margin:10px 0 6px;">Soal 1</div>
         <div style="font-size:1.05rem; font-weight:700; margin-top:5px; white-space: pre-line;" id="questionText" class="notranslate" translate="no">Memuat soal...</div>
         <div id="quizContent" style="margin-top: 15px;" class="notranslate" translate="no"></div>
       </div>
@@ -3565,7 +3566,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       const deadlineText = `${hh}:${mm}`;
       if (current < startMinutes) return {allowed:false, deadlineText, message:`Login dibuka mulai ${active.start} WITA.`};
       if (current >= endMinutes) return {allowed:false, deadlineText, message:`Jadwal ${active.label} sudah berakhir pada ${active.end} WITA.`};
-      if (current >= deadlineMinutes) return {allowed:false, deadlineText, message:`Batas login sudah berakhir pada ${deadlineText} WITA. Siswa yang belum login dianggap tidak mengikuti ujian.`};
+      if (current > deadlineMinutes) return {allowed:false, deadlineText, message:`Batas login sudah berakhir pada ${deadlineText} WITA. Siswa yang belum login dianggap tidak mengikuti ujian.`};
       return {allowed:true, deadlineText, message:`Login dibuka sampai ${deadlineText} WITA (${Math.max(0, deadlineMinutes-startMinutes)} menit setelah mulai).`};
     }
 
@@ -4714,6 +4715,8 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
 
       if (questions.length === 0) {
         document.getElementById('sectionBadge').style.display = 'none';
+        const numberEl = document.getElementById('questionNumber');
+        if (numberEl) numberEl.style.display = 'none';
         document.getElementById('questionText').innerText = currentSubject === 'mulok'
           ? `Soal Mulok untuk kelas ${normalizeStudentClass(studentData?.class)} belum tersedia.`
           : "Belum ada soal yang tersedia untuk kelas/mapel ini.";
@@ -4725,6 +4728,11 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
 
       document.getElementById('sectionBadge').style.display = 'inline-block';
       const qData = questions[currentIdx];
+      const numberEl = document.getElementById('questionNumber');
+      if (numberEl) {
+        numberEl.textContent = `Soal ${currentIdx + 1} dari ${questions.length}`;
+        numberEl.style.display = 'block';
+      }
 
       // Gambar hanya dirender berdasarkan qData soal yang sedang aktif.
       // Tidak menggunakan MutationObserver agar tidak ada gambar lama yang tertinggal.
