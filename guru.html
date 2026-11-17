@@ -2707,7 +2707,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       if(option){
         if(!current)errors.push(`Baris ${ix+1}: opsi ${option[1].toUpperCase()} ditemukan sebelum pertanyaan.`);
         else if(current.type==='pg')current.opt.push(`${option[1].toUpperCase()}. ${option[2].trim()}`);
-        else if(option[1]===option[1].toLowerCase())current.q+=(current.q?'\\n':'')+`${option[1]}. ${option[2].trim()}`;
+        else if(option[1]===option[1].toLowerCase())current.q+=(current.q?'\n':'')+`${option[1]}. ${option[2].trim()}`;
         else errors.push(`Baris ${ix+1}: opsi pilihan ganda huruf besar ditemukan di bagian esai.`);
         continue;
       }
