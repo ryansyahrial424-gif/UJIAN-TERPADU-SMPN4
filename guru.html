@@ -848,7 +848,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
             <option value="susulan">Susulan / Cadangan</option>
           </select>
         </div>
-        <div class="form-group" style="flex:0 1 180px;"><label>Batas Login (menit)</label><input type="number" id="loginGraceMinutes" class="form-control" min="0" max="120" step="1" value="20"><small style="color:#64748b;display:block;margin-top:4px;">Hanya untuk siswa yang belum login. Siswa yang sudah membuka soal tetap dapat mengerjakan sampai 90 menit sejak soal dibuka.</small></div>
+        <div class="form-group" style="flex:0 1 220px;"><label>Batas keterlambatan login setelah mulai (menit)</label><input type="number" id="loginGraceMinutes" class="form-control" min="0" max="120" step="1" value="20"><small style="color:#64748b;display:block;margin-top:4px;">Login baru belum dibuka sebelum jam mulai. Setelah jam mulai, siswa dapat login selama batas menit ini. Sesi yang sudah dimulai tetap dapat dilanjutkan sampai 90 menit.</small></div>
         <button class="btn btn-primary" onclick="addScheduleRow()"><i class="fa-solid fa-plus"></i> Tambah Jadwal</button>
       </div>
       <div class="schedule-table-wrap">
@@ -2703,8 +2703,14 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       if(/^(?:[A-H][.)]\s*)?(?:BAGIAN\s+[A-H]\s*[:.)-]?\s*)?(?:SOAL\s+)?(?:ESAI|ESSAY|URAIAN)\b/i.test(line)){finish();mode='essay';seenSection=true;continue;}
       const numbered=line.match(/^(?:\((\d{1,3})\)|(\d{1,3})[.)])\s*(.*)$/);
       if(numbered){finish();start(mode,numbered[3]);continue;}
-      const option=line.match(/^\(?([A-F])\)?[.)]\s*(.+)$/i);
-      if(option){if(!current)errors.push(`Baris ${ix+1}: opsi ${option[1].toUpperCase()} ditemukan sebelum pertanyaan.`);else{if(current.type!=='pg')errors.push(`Baris ${ix+1}: opsi pilihan ganda ditemukan di bagian esai.`);current.opt.push(`${option[1].toUpperCase()}. ${option[2].trim()}`);}continue;}
+      const option=line.match(/^\(?([A-Fa-f])\)?[.)]\s*(.+)$/);
+      if(option){
+        if(!current)errors.push(`Baris ${ix+1}: opsi ${option[1].toUpperCase()} ditemukan sebelum pertanyaan.`);
+        else if(current.type==='pg')current.opt.push(`${option[1].toUpperCase()}. ${option[2].trim()}`);
+        else if(option[1]===option[1].toLowerCase())current.q+=(current.q?'\\n':'')+`${option[1]}. ${option[2].trim()}`;
+        else errors.push(`Baris ${ix+1}: opsi pilihan ganda huruf besar ditemukan di bagian esai.`);
+        continue;
+      }
       const key=line.match(/^(?:kunci(?:\s+jawaban)?|jawaban(?:\s+benar)?|answer)\s*[:=\-]\s*([A-F])\b/i);
       if(key){if(!current)errors.push(`Baris ${ix+1}: kunci jawaban tidak terkait dengan soal.`);else current.ans=key[1].toUpperCase();continue;}
       const score=line.match(/^(?:skor(?:\s+soal)?|bobot(?:\s+nilai)?|poin|nilai\s+soal)\s*[:=\-]\s*(\d+(?:[.,]\d+)?)\s*$/i);
