@@ -4682,10 +4682,64 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       if (timerEl) timerEl.style.display = 'none';
     }
 
+    // Cadangan jawaban lokal per siswa + sesi. Jika halaman dimuat ulang,
+    // jawaban pada sesi yang sama dipulihkan; sesi baru tidak mewarisi jawaban lama.
+    function getExamDraftStorageKey() {
+      const studentId = String(studentData?.id || '').trim();
+      const sessionId = String(studentData?.supabaseExamSession || '').trim();
+      if (!studentId || !sessionId) return '';
+      return 'SMPN4_EXAM_DRAFT_V1:' + encodeURIComponent(studentId) + ':' + encodeURIComponent(sessionId);
+    }
+
+    function saveExamDraftLocal() {
+      const key = getExamDraftStorageKey();
+      if (!key) return false;
+      try {
+        localStorage.setItem(key, JSON.stringify({
+          studentId: String(studentData.id || ''),
+          sessionId: String(studentData.supabaseExamSession || ''),
+          subject: String(currentSubject || ''),
+          answersPG: userAnswersPG,
+          answersEssay: userAnswersEssay,
+          savedAt: Date.now()
+        }));
+        return true;
+      } catch (err) {
+        console.warn('Cadangan jawaban lokal tidak dapat disimpan:', err);
+        return false;
+      }
+    }
+
+    function restoreExamDraftLocal() {
+      const key = getExamDraftStorageKey();
+      if (!key) return false;
+      try {
+        const draft = JSON.parse(localStorage.getItem(key) || 'null');
+        if (!draft ||
+            String(draft.studentId || '') !== String(studentData.id || '') ||
+            String(draft.sessionId || '') !== String(studentData.supabaseExamSession || '') ||
+            String(draft.subject || '') !== String(currentSubject || '')) return false;
+        userAnswersPG = Array.isArray(draft.answersPG) ? draft.answersPG : [];
+        userAnswersEssay = Array.isArray(draft.answersEssay) ? draft.answersEssay : [];
+        return true;
+      } catch (err) {
+        console.warn('Cadangan jawaban lokal tidak dapat dipulihkan:', err);
+        return false;
+      }
+    }
+
+    function clearExamDraftLocal() {
+      const key = getExamDraftStorageKey();
+      if (!key) return;
+      try { localStorage.removeItem(key); } catch (err) {}
+    }
+
     function startQuiz() {
       currentIdx = 0;
-      userAnswersPG = [];
-      userAnswersEssay = [];
+      if (!restoreExamDraftLocal()) {
+        userAnswersPG = [];
+        userAnswersEssay = [];
+      }
       showQuestion();
       // Timer 90 menit baru dimulai ketika soal benar-benar dibuka,
       // bukan saat login dan bukan saat menunggu di menu mata pelajaran.
@@ -4775,6 +4829,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
         textarea.value = userAnswersEssay[currentIdx] || '';
         textarea.oninput = (e) => {
           userAnswersEssay[currentIdx] = e.target.value;
+          saveExamDraftLocal();
         };
 
         contentArea.appendChild(textarea);
@@ -4785,6 +4840,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       document.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
       userAnswersPG[currentIdx] = selectedIdx;
+      saveExamDraftLocal();
     }
 
     function prevQuestion() {
@@ -4944,6 +5000,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       document.getElementById('loading').style.display = 'none';
       if (saved) {
         try { localStorage.removeItem(pendingKey); } catch (e) {}
+        clearExamDraftLocal();
         const scoreEl=document.getElementById('studentResultScore'), detailEl=document.getElementById('studentResultDetail'), metaEl=document.getElementById('studentResultMeta');
         const finalScore=Number(serverResult.score);
         if(scoreEl)scoreEl.textContent=Number.isFinite(finalScore)?String(finalScore):'--';
