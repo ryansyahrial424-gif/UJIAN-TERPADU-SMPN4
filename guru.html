@@ -2767,6 +2767,10 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
         sharedContext=current.q;
         return;
       }
+      if(current&&current.type==='pg'&&current.opt.length===0&&clean.length>=2&&clean.length<=6&&!/peristiwa|kronologis/i.test(current.q)){
+        clean.forEach((value,index)=>addOption(String.fromCharCode(65+index),value));
+        return;
+      }
       clean.forEach(value=>{
         if(isIntro(value)){
           if(current)finish();
@@ -2861,6 +2865,10 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
         if(current)finish();
         if(sharedContext){preamble=[sharedContext];sharedContext='';}
         startQuestion(mode,line);continue;
+      }
+      if(current&&current.type==='pg'&&current.opt.length<6&&isQuestion(current.q)&&line.length<=500&&!isIntro(line)){
+        addOption(String.fromCharCode(65+current.opt.length),line);
+        continue;
       }
       appendContext(line);
     }
