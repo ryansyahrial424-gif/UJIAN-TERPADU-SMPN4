@@ -4756,6 +4756,19 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       return await serverAutosaveInFlight;
     }
 
+    // Best-effort server flush when the tab is backgrounded or being closed.
+    // The local draft is written synchronously first, so a failed network flush
+    // still leaves a recoverable copy on this device.
+    function flushAutosaveOnPageExit() {
+      if (examFinished || !serverAutosaveDirty) return;
+      saveExamDraftLocal();
+      void flushServerAutosave();
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushAutosaveOnPageExit();
+    });
+    window.addEventListener('pagehide', flushAutosaveOnPageExit);
+
     async function restoreServerExamProgress() {
       try {
         const result = await callSupabaseExamApi('student-get-progress', {
