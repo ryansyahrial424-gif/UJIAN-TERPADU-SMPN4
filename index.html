@@ -3991,6 +3991,26 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       }
     }
 
+    function stopExamForBlock(reason) {
+      // Blokir bukan pengiriman hasil: hentikan tampilan ujian tanpa memanggil finishExam().
+      examFinished = true;
+      examSecurityArmed = false;
+      violationSyncPending = false;
+      stopAutoTranslateProtection();
+      stopScheduleClock();
+      hideQuizTimer();
+      hideViolationSyncHold();
+      const loading = document.getElementById('loading');
+      if (loading) loading.style.display = 'none';
+      const detail = String(reason || 'Batas 3 pelanggaran telah tercapai.');
+      alert(
+        'UJIAN DIHENTIKAN DAN AKUN DIBLOKIR.\\n\\n' +
+        detail + '\\n\\n' +
+        'Jawaban tidak dikirim sebagai hasil ujian. Anda tidak dapat login kembali sampai guru membuka blokir.'
+      );
+      window.location.reload();
+    }
+
     async function lockStudentAfterViolation(reason) {
       if (blacklistLockInProgress || examFinished) return { success: false, blocked: false, message: 'Proses blokir sudah berjalan atau ujian telah selesai.' };
       const sessionId = String(studentData.supabaseExamSession || '').trim();
@@ -4010,7 +4030,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
           throw new Error(result?.message || 'Supabase belum mengonfirmasi blokir aktif.');
         }
         studentData.violations = Math.max(3, Number(studentData.violations || 0));
-        await finishExam(true);
+        stopExamForBlock('Guru/admin harus membuka blokir sebelum siswa dapat login kembali.');
         return { success: true, blocked: true, violations: studentData.violations };
       } catch (err) {
         blacklistLockInProgress = false;
@@ -4189,7 +4209,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
               studentData.violations = Math.max(studentData.violations, MAX_VIOLATIONS);
               if (!blacklistLockInProgress && !examFinished) {
                 blacklistLockInProgress = true;
-                await finishExam(true);
+                stopExamForBlock('Pelanggaran ketiga telah dikonfirmasi server. Ujian dihentikan dan akses login dikunci.');
               }
               return { ...result, success: true, blocked: true, violations: studentData.violations };
             }
