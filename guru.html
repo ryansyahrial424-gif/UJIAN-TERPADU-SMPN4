@@ -949,7 +949,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
           <button type="button" class="btn btn-primary" onclick="saveBankSoalSettings()">Simpan Pengaturan Soal</button>
         </div>
         <label style="display:flex;gap:8px;align-items:center;margin:0 0 12px"><input id="bsShowInactive" type="checkbox" onchange="loadBankSoalEditor()"> Tampilkan juga soal nonaktif agar dapat dipulihkan</label>
-        <p style="font-size:.85rem;color:#475569;margin:0 0 12px">Word (.docx): gunakan judul <b>A. PILIHAN GANDA</b> dan <b>B. SOAL ESAI</b>; nomor soal ditulis manual (mis. 1. ...). Setiap PG memakai baris <b>A. ...</b> sampai F bila perlu, lalu <b>Kunci: B</b> dan <b>Skor: 2</b>. Soal esai juga dapat diberi <b>Skor: 5</b>. Jika skor tidak ditulis, skor default 1 digunakan dan diberi peringatan. Impor Word hanya menambah soal; duplikat ditolak. Excel mendukung TAMBAH dan UBAH (wajib ID_Soal). Bank dibagikan otomatis ke seluruh kelas paralel; tidak perlu membuat salinan untuk tiap kelas. Maksimal 100 soal per batch. Tidak ada operasi hapus massal.</p>
+        <p style="font-size:.85rem;color:#475569;margin:0 0 12px">Word (.docx): format lebih fleksibel. Judul bagian, nomor manual, dan label opsi A-F akan dikenali otomatis bila terbaca. Kunci PG boleh tidak ditulis di Word karena dapat dipilih pada layar pemeriksaan sebelum disimpan. Poin otomatis 1 jika tidak diisi dan dapat diubah pada layar pemeriksaan. Periksa teks/opsi hasil pembacaan sebelum menyimpan. Gambar yang tertanam di Word belum diekstrak otomatis; tambahkan melalui editor gambar soal. Impor Word hanya menambah soal; duplikat ditolak. Excel mendukung TAMBAH dan UBAH (wajib ID_Soal). Bank dibagikan otomatis ke seluruh kelas paralel; tidak perlu membuat salinan untuk tiap kelas. Maksimal 100 soal per batch. Tidak ada operasi hapus massal.</p>
         <div id="bankSoalList" style="display:grid;gap:12px"></div>
         <div id="bankSoalArchive" style="display:none;margin-top:16px;padding:14px;border:1px dashed #94a3b8;border-radius:10px;background:#f8fafc"></div>
         <div id="bankSoalEditor" style="display:none;border:1px solid #cbd5e1;border-radius:12px;padding:16px;margin-top:16px">
@@ -2694,72 +2694,217 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     return lines;
   }
   function parseBankSoalWordLines(lines){
-    let mode='pg', current=null, seenSection=false;const parsed=[],errors=[];
-    const finish=()=>{if(current){current.q=String(current.q||'').trim();if(current.q)parsed.push(current);else errors.push(`Soal ke-${parsed.length+1}: teks pertanyaan kosong.`);current=null;}};
-    const start=(type,text)=>{current={type:type||mode,q:String(text||'').trim(),opt:[],ans:null,points:null};};
+    let mode='pg', current=null, preamble=[], sawNumbered=false;
+    const parsed=[],errors=[];
+    const finish=()=>{
+      if(!current)return;
+      current.q=String(current.q||'').trim();
+      current.opt=(current.opt||[]).map(v=>String(v||'').trim()).filter(Boolean);
+      if(current.q)parsed.push(current);
+      current=null;
+    };
+    const startQuestion=(type,text)=>{
+      const prefix=preamble.length?preamble.join('\n').trim():'';
+      preamble=[];
+      current={type:type||mode,q:[prefix,String(text||'').trim()].filter(Boolean).join('\n'),opt:[],ans:null,points:null};
+    };
+    const addOption=(letter,value)=>{
+      if(!current||current.type!=='pg')return;
+      const index=letter.toUpperCase().charCodeAt(0)-65;
+      current.opt[index]=letter.toUpperCase()+'. '+String(value||'').trim();
+    };
+    const splitInlineOptions=(line)=>{
+      const re=/(^|[\s\t])([A-Fa-f])[.)]\s+/g, hits=[];
+      let m;
+      while((m=re.exec(line))!==null){
+        const letterStart=m.index+m[1].length;
+        hits.push({letter:m[2].toUpperCase(),start:letterStart,end:re.lastIndex});
+      }
+      if(hits.length<2||hits[0].letter!=='A')return null;
+      for(let i=0;i<hits.length;i++){
+        if(hits[i].letter!==String.fromCharCode(65+i))return null;
+      }
+      const prefix=line.slice(0,hits[0].start).trim();
+      const options=hits.map((hit,i)=>({
+        letter:hit.letter,
+        text:line.slice(hit.end,i+1<hits.length?hits[i+1].start:line.length).trim()
+      }));
+      if(options.some(x=>!x.text))return null;
+      return {prefix,options};
+    };
     for(let ix=0;ix<lines.length;ix++){
-      const line=String(lines[ix]||'').replace(/\u00a0/g,' ').trim();if(!line)continue;
-      if(/^(?:[A-H][.)]\s*)?(?:BAGIAN\s+[A-H]\s*[:.)-]?\s*)?(?:SOAL\s+)?(?:PILIHAN\s+GANDA|PG)\b/i.test(line)){finish();mode='pg';seenSection=true;continue;}
-      if(/^(?:[A-H][.)]\s*)?(?:BAGIAN\s+[A-H]\s*[:.)-]?\s*)?(?:SOAL\s+)?(?:ESAI|ESSAY|URAIAN)\b/i.test(line)){finish();mode='essay';seenSection=true;continue;}
-      const numbered=line.match(/^(?:\((\d{1,3})\)|(\d{1,3})[.)])\s*(.*)$/);
-      if(numbered){finish();start(mode,numbered[3]);continue;}
-      const option=line.match(/^\(?([A-Fa-f])\)?[.)]\s*(.+)$/);
-      if(option){
-        if(!current)errors.push(`Baris ${ix+1}: opsi ${option[1].toUpperCase()} ditemukan sebelum pertanyaan.`);
-        else if(current.type==='pg')current.opt.push(`${option[1].toUpperCase()}. ${option[2].trim()}`);
-        else if(option[1]===option[1].toLowerCase())current.q+=(current.q?'\n':'')+`${option[1]}. ${option[2].trim()}`;
-        else errors.push(`Baris ${ix+1}: opsi pilihan ganda huruf besar ditemukan di bagian esai.`);
+      const line=String(lines[ix]||'').replace(/\u00a0/g,' ').replace(/[ \t]+/g,' ').trim();
+      if(!line)continue;
+      if(/^(?:(?:[A-H]|[IVX]+)[.)]\s*)?(?:BAGIAN\s+[A-H]\s*[:.)-]?\s*)?(?:SOAL\s+)?(?:PILIHAN\s+GANDA|PILGAN|PG)\b\s*[:.-]?$/i.test(line)){
+        finish();mode='pg';continue;
+      }
+      if(/^(?:(?:[A-H]|[IVX]+)[.)]\s*)?(?:BAGIAN\s+[A-H]\s*[:.)-]?\s*)?(?:SOAL\s+)?(?:ESAI|ESSAY|URAIAN)\b\s*[:.-]?$/i.test(line)){
+        finish();mode='essay';continue;
+      }
+      const key=line.match(/^(?:kunci(?:\s+jawaban)?|jawaban(?:\s+benar)?|answer|ans)\s*[:= -]\s*([A-F])\b/i);
+      if(key){
+        if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
+        if(current)current.ans=key[1].toUpperCase();
+        else errors.push('Baris '+(ix+1)+': kunci jawaban tidak dapat dikaitkan dengan soal.');
         continue;
       }
-      const key=line.match(/^(?:kunci(?:\s+jawaban)?|jawaban(?:\s+benar)?|answer)\s*[:=\-]\s*([A-F])\b/i);
-      if(key){if(!current)errors.push(`Baris ${ix+1}: kunci jawaban tidak terkait dengan soal.`);else current.ans=key[1].toUpperCase();continue;}
-      const score=line.match(/^(?:skor(?:\s+soal)?|bobot(?:\s+nilai)?|poin|nilai\s+soal)\s*[:=\-]\s*(\d+(?:[.,]\d+)?)\s*$/i);
-      if(score){if(!current)errors.push(`Baris ${ix+1}: skor tidak terkait dengan soal.`);else current.points=Number(score[1].replace(',','.'));continue;}
-      if(!current){if(!seenSection)continue;start(mode,line);continue;}
-      // Dokumen yang memakai penomoran otomatis Word kadang tidak menyertakan angka di teks.
-      if(current.ans!==null||current.points!==null){finish();start(mode,line);continue;}
+      const score=line.match(/^(?:skor(?:\s+soal)?|bobot(?:\s+nilai)?|poin|nilai\s+soal)\s*[:= -]\s*(\d+(?:[.,]\d+)?)\s*$/i);
+      if(score){
+        if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
+        if(current)current.points=Number(score[1].replace(',','.'));
+        else errors.push('Baris '+(ix+1)+': poin tidak dapat dikaitkan dengan soal.');
+        continue;
+      }
+      const numbered=line.match(/^(?:(?:soal|nomor)\s*)?(?:\((\d{1,3})\)|(\d{1,3})[.)]|(?:soal|nomor)\s*(\d{1,3})\s*[:.)-])\s*(.*)$/i);
+      if(numbered){
+        finish();sawNumbered=true;
+        const text=numbered[4]||'';
+        startQuestion(mode,text);
+        continue;
+      }
+      const inline=splitInlineOptions(line);
+      if(inline){
+        if(inline.prefix){
+          if(!current)startQuestion(mode,inline.prefix);
+          else current.q+=(current.q?'\n':'')+inline.prefix;
+        }else if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
+        if(!current){
+          errors.push('Baris '+(ix+1)+': pilihan A-F ditemukan tanpa teks pertanyaan sebelumnya.');
+          continue;
+        }
+        inline.options.forEach(x=>addOption(x.letter,x.text));
+        continue;
+      }
+      const option=line.match(/^\(?([A-Fa-f])\)?[.)]\s*(.+)$/);
+      if(option){
+        if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
+        if(!current){
+          errors.push('Baris '+(ix+1)+': pilihan '+option[1].toUpperCase()+' ditemukan sebelum teks pertanyaan.');
+        }else if(current.type==='pg'){
+          addOption(option[1],option[2]);
+        }else if(option[1]===option[1].toLowerCase()){
+          current.q+=(current.q?'\n':'')+option[1]+'. '+option[2].trim();
+        }else{
+          errors.push('Baris '+(ix+1)+': opsi huruf besar ditemukan pada bagian esai.');
+        }
+        continue;
+      }
+      if(!current){
+        if(sawNumbered)startQuestion(mode,line);
+        else preamble.push(line);
+        continue;
+      }
+      if(current.ans!==null||current.points!==null){
+        finish();startQuestion(mode,line);continue;
+      }
       current.q+=(current.q?'\n':'')+line;
     }
     finish();
-    if(!parsed.length)errors.push('Tidak ditemukan soal. Gunakan nomor manual (1., 2., ...) atau pastikan setiap soal dipisahkan dengan format yang dijelaskan.');
+    if(!parsed.length&&preamble.length){
+      startQuestion(mode,preamble.join('\n'));finish();
+    }
+    if(!parsed.length)errors.push('Belum ada soal yang berhasil dikenali. Pastikan isi dokumen berupa teks yang dapat diseleksi, bukan hanya gambar hasil pindai.');
     return {parsed,errors};
   }
+
+  function showBankSoalImportReview(questions,cls,subject){
+    return new Promise(resolve=>{
+      const overlay=document.createElement('div');
+      overlay.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.72);display:flex;align-items:center;justify-content:center;padding:16px';
+      const modal=document.createElement('div');
+      modal.style.cssText='width:min(980px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 24px 80px rgba(0,0,0,.3);color:#172033';
+      const heading=document.createElement('h2');heading.textContent='Periksa soal sebelum disimpan';heading.style.cssText='margin:0 0 6px;font-size:20px';
+      const intro=document.createElement('p');intro.textContent='Periksa teks dan pilihan. Kunci PG boleh dilengkapi di sini; tidak perlu menambahkan baris Kunci: pada dokumen Word.';intro.style.cssText='margin:0 0 14px;color:#475569;font-size:14px';
+      const meta=document.createElement('div');meta.textContent='Kelas '+cls+' · '+subject+' · '+questions.length+' soal terdeteksi';meta.style.cssText='padding:10px;background:#eff6ff;border-radius:9px;margin-bottom:14px;font-weight:700;font-size:13px';
+      const list=document.createElement('div');list.style.cssText='display:grid;gap:12px';
+      const editors=[];
+      questions.forEach((q,index)=>{
+        const card=document.createElement('section');card.style.cssText='border:1px solid #dbe3ee;border-radius:11px;padding:12px;display:grid;gap:8px';
+        const title=document.createElement('strong');title.textContent='Soal '+(index+1)+' · '+(q.type==='essay'?'Esai':'Pilihan ganda');card.appendChild(title);
+        const question=document.createElement('textarea');question.value=q.q||'';question.rows=3;question.setAttribute('aria-label','Teks soal '+(index+1));question.style.cssText='width:100%;box-sizing:border-box;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font:inherit';card.appendChild(question);
+        const optionEditors=[];
+        if(q.type==='pg'){
+          (q.opt||[]).forEach((value,optionIndex)=>{
+            const wrap=document.createElement('label');wrap.style.cssText='display:grid;grid-template-columns:28px 1fr;gap:6px;align-items:start;font-size:13px';
+            const mark=document.createElement('b');mark.textContent=String.fromCharCode(65+optionIndex)+'.';
+            const input=document.createElement('textarea');input.value=String(value).replace(/^[A-F]\.\s*/i,'');input.rows=2;input.setAttribute('aria-label','Pilihan '+String.fromCharCode(65+optionIndex)+' soal '+(index+1));input.style.cssText='width:100%;box-sizing:border-box;padding:7px;border:1px solid #cbd5e1;border-radius:7px;font:inherit';
+            wrap.append(mark,input);card.appendChild(wrap);optionEditors.push(input);
+          });
+          const keyWrap=document.createElement('label');keyWrap.style.cssText='display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px';
+          const keyLabel=document.createElement('span');keyLabel.textContent='Kunci jawaban:';
+          const select=document.createElement('select');select.style.cssText='padding:8px;border:1px solid #94a3b8;border-radius:8px;font:inherit';
+          const empty=document.createElement('option');empty.value='';empty.textContent='Pilih kunci';select.appendChild(empty);
+          optionEditors.forEach((_,optionIndex)=>{const opt=document.createElement('option');opt.value=String(optionIndex);opt.textContent='Pilihan '+String.fromCharCode(65+optionIndex);if(q.ans&&q.ans.charCodeAt(0)-65===optionIndex)opt.selected=true;select.appendChild(opt);});
+          keyWrap.append(keyLabel,select);card.appendChild(keyWrap);
+          const hint=document.createElement('small');hint.textContent='Wajib dipilih agar sistem dapat menghitung nilai PG dengan benar.';hint.style.cssText='color:#64748b';card.appendChild(hint);
+          editors.push({q,question,optionEditors,select});
+        }else{
+          editors.push({q,question,optionEditors,select:null});
+        }
+        const pointsWrap=document.createElement('label');pointsWrap.style.cssText='display:flex;gap:8px;align-items:center;font-size:13px';
+        const pointsLabel=document.createElement('span');pointsLabel.textContent='Poin:';
+        const points=document.createElement('input');points.type='number';points.min='0.01';points.step='0.01';points.value=String(q.points||1);points.style.cssText='width:100px;padding:7px;border:1px solid #cbd5e1;border-radius:7px';
+        pointsWrap.append(pointsLabel,points);card.appendChild(pointsWrap);
+        editors[editors.length-1].points=points;
+        list.appendChild(card);
+      });
+      const status=document.createElement('p');status.style.cssText='color:#b91c1c;font-size:13px;font-weight:700;min-height:18px;margin:10px 0';
+      const actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:-20px;background:#fff;padding:12px 0 0;border-top:1px solid #e2e8f0';
+      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Batal';cancel.style.cssText='padding:10px 16px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-weight:700;cursor:pointer';
+      const save=document.createElement('button');save.type='button';save.textContent='Simpan '+questions.length+' soal';save.style.cssText='padding:10px 16px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer';
+      const close=value=>{overlay.remove();resolve(value);};
+      cancel.onclick=()=>close(null);
+      save.onclick=()=>{
+        const payload=[],problems=[];
+        editors.forEach((editor,index)=>{
+          const q=editor.q,questionText=editor.question.value.trim();
+          if(!questionText){problems.push('Soal '+(index+1)+': teks pertanyaan kosong.');return;}
+          const points=Number(editor.points.value);
+          if(!Number.isFinite(points)||points<=0){problems.push('Soal '+(index+1)+': poin harus lebih besar dari 0.');return;}
+          let options=[],answer=null;
+          if(q.type==='pg'){
+            options=editor.optionEditors.map((input,i)=>String.fromCharCode(65+i)+'. '+input.value.trim());
+            if(options.length<2||options.length>6||options.some(x=>!x.slice(3).trim())){problems.push('Soal '+(index+1)+': lengkapi 2 sampai 6 pilihan jawaban.');return;}
+            if(editor.select.value===''){problems.push('Soal '+(index+1)+': pilih kunci jawaban.');return;}
+            answer=Number(editor.select.value);
+          }
+          payload.push({operation:'add',id:'',className:cls,subject,type:q.type,q:questionText,opt:options,ans:answer,points,sort_order:index+1,is_active:true});
+        });
+        if(problems.length){status.textContent=problems.slice(0,8).join(' ')+(problems.length>8?' Dan '+(problems.length-8)+' kesalahan lain.':'');return;}
+        close(payload);
+      };
+      actions.append(cancel,save);modal.append(heading,intro,meta,list,status,actions);overlay.appendChild(modal);
+      overlay.addEventListener('click',event=>{if(event.target===overlay)close(null);});
+      document.addEventListener('keydown',function onKey(event){if(event.key==='Escape'&&overlay.isConnected){document.removeEventListener('keydown',onKey);close(null);}});
+      document.body.appendChild(overlay);
+    });
+  }
+
   async function handleBankSoalWord(file){
     if(!file)return;
     try{
       if(!/\.docx$/i.test(file.name))throw new Error('Pilih dokumen Microsoft Word berformat .docx. File .doc lama belum didukung.');
       if(file.size>8*1024*1024)throw new Error('Ukuran dokumen Word terlalu besar. Maksimal 8 MB per dokumen.');
       if(!window.mammoth)throw new Error('Pustaka pembaca Word belum termuat. Periksa koneksi internet lalu muat ulang dashboard.');
-      bankSoalStatus('Membaca dokumen Word dan memeriksa format soal...');
+      bankSoalStatus('Membaca dokumen Word dan mengenali susunan soal...');
       const result=await window.mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
       const lines=collectWordBankLines(result.value||'');
       const parsed=parseBankSoalWordLines(lines);
+      if(parsed.errors.length)throw new Error(parsed.errors.slice(0,8).join(' ')+(parsed.errors.length>8?' Dan '+(parsed.errors.length-8)+' kesalahan lainnya.':''));
       const allowedClasses=['7.1','7.2','7.3','8.1','8.2','9.1','9.2'];
       const cls=document.getElementById('bsClass').value,subject=document.getElementById('bsSubject').value;
       if(!allowedClasses.includes(cls))throw new Error('Kelas yang dipilih tidak valid.');
-      const questions=parsed.parsed;const errors=parsed.errors.slice();const warnings=[];const payload=[];
-      questions.forEach((q,i)=>{
-        const label=`Soal ${i+1}`;
-        if(!q.q.trim()){errors.push(`${label}: pertanyaan kosong.`);return;}
-        if(q.type==='pg'){
-          if(q.opt.length<2||q.opt.length>6){errors.push(`${label}: pilihan ganda harus memiliki 2 sampai 6 opsi.`);return;}
-          if(!q.ans||!/^[A-F]$/.test(q.ans)||q.ans.charCodeAt(0)-65>=q.opt.length){errors.push(`${label}: kunci jawaban harus ditulis, misalnya Kunci: B, dan sesuai jumlah opsi.`);return;}
-        }else if(q.opt.length){errors.push(`${label}: soal esai tidak boleh berisi opsi A–F.`);return;}
-        let points=q.points;
-        if(points===null||points===undefined){points=1;warnings.push(`${label} tidak mencantumkan skor; digunakan skor default 1.`);}
-        if(!Number.isFinite(points)||points<=0||points>100000){errors.push(`${label}: skor harus lebih besar dari 0 dan maksimal 100000.`);return;}
-        payload.push({operation:'add',id:'',className:cls,subject,type:q.type,q:q.q,opt:q.type==='pg'?q.opt:[],ans:q.type==='pg'?q.ans.charCodeAt(0)-65:null,points,sort_order:i+1,is_active:true});
-      });
-      if(errors.length)throw new Error('Impor Word dibatalkan karena format belum valid. '+errors.slice(0,10).join(' ')+(errors.length>10?` Dan ${errors.length-10} kesalahan lainnya.`:''));
-      if(!payload.length)throw new Error('Tidak ada soal valid pada dokumen.');
-      if(payload.length>1000)throw new Error('Maksimal 1.000 soal per proses impor. Pecah dokumen menjadi beberapa bagian.');
-      // Cek duplikat terhadap soal aktif/nonaktif sebelum menulis; backend mengulang pemeriksaan untuk mencegah race condition.
+      const questions=parsed.parsed;
+      if(!questions.length)throw new Error('Tidak ada soal yang berhasil dibaca dari dokumen.');
+      if(questions.length>1000)throw new Error('Maksimal 1.000 soal per proses impor. Pecah dokumen menjadi beberapa bagian.');
+      const payload=await showBankSoalImportReview(questions,cls,subject);
+      if(!payload)return;
+      bankSoalStatus('Memeriksa duplikasi soal sebelum disimpan...');
       const existingByGroup=await preflightBankSoalDuplicates(payload,'Impor Word dihentikan');
-      const groupKey=`${cls}\u0000${subject}`;const currentRecords=existingByGroup.get(groupKey)||[];
+      const groupKey=cls+'\u0000'+subject;const currentRecords=existingByGroup.get(groupKey)||[];
       const maxSortOrder=currentRecords.reduce((max,q)=>Math.max(max,Number(q.sort_order)||0),0);
       payload.forEach((q,i)=>{q.sort_order=maxSortOrder+i+1;});
-      const note=warnings.length?`\n\nPeringatan skor default 1 pada ${warnings.length} soal. Periksa dokumen Word bila bobotnya berbeda.`:'';
-      if(!confirm(`Pratinjau impor Word\nKelas: ${cls}\nMapel: ${subject}\nPilihan ganda: ${payload.filter(q=>q.type==='pg').length}\nEsai: ${payload.filter(q=>q.type==='essay').length}\nTotal ditambahkan: ${payload.length}\n\nImpor menambah soal ke bank bersama jenjang ini; kelas paralel otomatis membaca bank yang sama. Arsip lama tidak diubah.${note}\n\nLanjutkan?`))return;
+      if(!confirm('Pratinjau akhir impor\\nKelas: '+cls+'\\nMapel: '+subject+'\\nPilihan ganda: '+payload.filter(q=>q.type==='pg').length+'\\nEsai: '+payload.filter(q=>q.type==='essay').length+'\\nTotal soal: '+payload.length+'\\n\\nSoal akan ditambahkan ke bank bersama jenjang ini. Soal lama dan arsip tidak dihapus. Lanjutkan?'))return;
       let added=0;
       for(let i=0;i<payload.length;i+=100){
         const result=await bankSoalApi('importBankSoalBatch',{questions:payload.slice(i,i+100)});
@@ -2767,7 +2912,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
         added+=Number(result.inserted||0);
       }
       await loadBankSoalEditor();
-      const msg=`Impor Word selesai. Soal baru: ${added}.${warnings.length?' Skor default 1 dipakai pada '+warnings.length+' soal.':''}`;
+      const msg='Impor Word selesai. '+added+' soal baru berhasil disimpan.';
       bankSoalStatus(msg);alert(msg);
     }catch(err){bankSoalStatus(err.message||'Impor Word gagal.',true);alert(err.message||'Impor Word gagal.');}
     finally{const input=document.getElementById('bsWordFile');if(input)input.value='';}
