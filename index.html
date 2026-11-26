@@ -731,6 +731,7 @@ body::after {
         <div id="questionNumber" class="notranslate" translate="no" style="display:block;font-size:.88rem;font-weight:800;color:#2563eb;margin:10px 0 6px;">Soal 1</div>
         <div style="font-size:1.05rem; font-weight:700; margin-top:5px; white-space: pre-line;" id="questionText" class="notranslate" translate="no">Memuat soal...</div>
         <div id="quizContent" style="margin-top: 15px;" class="notranslate" translate="no"></div>
+        <div id="serverAutosaveStatus" role="status" aria-live="polite" style="margin-top:10px;font-size:.78rem;color:#64748b;text-align:right;">Cadangan lokal aktif; sinkronisasi server menunggu jawaban.</div>
       </div>
 
       <!-- NAVIGASI TOMBOL KEMBALI, SELESAI & BERIKUTNYA -->
@@ -3691,6 +3692,11 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
     let currentIdx = 0;
     let userAnswersPG = [];
     let userAnswersEssay = [];
+    let serverAutosaveRevision = 0;
+    let serverAutosaveDirty = false;
+    let serverAutosaveTimer = null;
+    let serverAutosaveInFlight = null;
+    let localDraftSavedAt = 0;
     const MAX_VIOLATIONS = 3; // Keputusan blokir final dihitung server berdasarkan Student ID + Nama + Kelas.
 
     // --- FITUR KEAMANAN PERANGKAT & TOMBOL ---
@@ -4521,7 +4527,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       document.querySelectorAll('.mapel-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentSubject = subj;
-      const quizStarted = startQuiz();
+      const quizStarted = await startQuiz();
       if (!quizStarted) {
         examSecurityArmed = false;
         stopAutoTranslateProtection();
@@ -4721,10 +4727,90 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
             String(draft.subject || '') !== String(currentSubject || '')) return false;
         userAnswersPG = Array.isArray(draft.answersPG) ? draft.answersPG : [];
         userAnswersEssay = Array.isArray(draft.answersEssay) ? draft.answersEssay : [];
+        localDraftSavedAt = Number(draft.savedAt || 0);
         return true;
       } catch (err) {
         console.warn('Cadangan jawaban lokal tidak dapat dipulihkan:', err);
         return false;
+      }
+    }
+
+    function setServerAutosaveStatus(message, color) {
+      const el = document.getElementById('serverAutosaveStatus');
+      if (el) { el.textContent = message; if (color) el.style.color = color; }
+    }
+
+    function scheduleServerAutosave() {
+      saveExamDraftLocal();
+      serverAutosaveRevision = Math.max(0, serverAutosaveRevision) + 1;
+      serverAutosaveDirty = true;
+      if (serverAutosaveTimer) clearTimeout(serverAutosaveTimer);
+      setServerAutosaveStatus('Jawaban tersimpan di perangkat; menyinkronkan ke server…', '#b45309');
+      serverAutosaveTimer = setTimeout(() => { void flushServerAutosave(); }, 1000);
+    }
+
+    async function flushServerAutosave() {
+      if (serverAutosaveTimer) { clearTimeout(serverAutosaveTimer); serverAutosaveTimer = null; }
+      if (!serverAutosaveDirty) return true;
+      if (serverAutosaveInFlight) {
+        try { await serverAutosaveInFlight; } catch (e) {}
+        if (!serverAutosaveDirty) return true;
+      }
+      const revision = serverAutosaveRevision;
+      const pg = userAnswersPG.slice();
+      const essay = userAnswersEssay.slice();
+      serverAutosaveInFlight = callSupabaseExamApi('student-save-progress', {
+        student_id: String(studentData.id || ''), session_id: String(studentData.supabaseExamSession || ''),
+        answers_pg: pg, answers_essay: essay, revision
+      }).then(result => {
+        if (result.saved === true && Number(result.revision) >= revision) {
+          if (serverAutosaveRevision === revision) serverAutosaveDirty = false;
+          setServerAutosaveStatus('Autosave server berhasil · ' + new Date(result.updated_at || Date.now()).toLocaleTimeString('id-ID'), '#15803d');
+          return true;
+        }
+        if (result.stale === true || Number(result.revision || 0) > revision) {
+          serverAutosaveRevision = Math.max(serverAutosaveRevision, Number(result.revision || 0));
+          serverAutosaveDirty = true;
+          setServerAutosaveStatus('Versi jawaban diperbarui; menyinkronkan ulang…', '#b45309');
+          return false;
+        }
+        serverAutosaveDirty = true;
+        setServerAutosaveStatus('Autosave server belum dikonfirmasi; cadangan lokal tetap aktif.', '#b45309');
+        return false;
+      }).catch(err => {
+        serverAutosaveDirty = true;
+        setServerAutosaveStatus('Server belum tersambung; cadangan lokal tetap aktif.', '#b45309');
+        console.warn('Autosave server gagal sementara:', err);
+        return false;
+      }).finally(() => { serverAutosaveInFlight = null; });
+      return await serverAutosaveInFlight;
+    }
+
+    async function restoreServerExamProgress() {
+      try {
+        const result = await callSupabaseExamApi('student-get-progress', {
+          student_id: String(studentData.id || ''), session_id: String(studentData.supabaseExamSession || '')
+        });
+        serverAutosaveRevision = Number(result.revision || 0);
+        if (result.found === true) {
+          const serverSavedAt = Date.parse(result.updated_at || '') || 0;
+          if (!localDraftSavedAt || serverSavedAt >= localDraftSavedAt) {
+            userAnswersPG = Array.isArray(result.answers_pg) ? result.answers_pg : [];
+            userAnswersEssay = Array.isArray(result.answers_essay) ? result.answers_essay : [];
+            localDraftSavedAt = serverSavedAt;
+            saveExamDraftLocal();
+            setServerAutosaveStatus('Jawaban dipulihkan dari server · ' + (result.updated_at ? new Date(result.updated_at).toLocaleTimeString('id-ID') : ''), '#15803d');
+          } else {
+            scheduleServerAutosave();
+          }
+        } else if (localDraftSavedAt) {
+          scheduleServerAutosave();
+        } else {
+          setServerAutosaveStatus('Autosave server aktif; jawaban akan disimpan otomatis.', '#64748b');
+        }
+      } catch (err) {
+        setServerAutosaveStatus('Server belum tersambung; jawaban tetap dicadangkan di perangkat.', '#b45309');
+        console.warn('Pemulihan autosave server gagal:', err);
       }
     }
 
@@ -4734,12 +4820,16 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       try { localStorage.removeItem(key); } catch (err) {}
     }
 
-    function startQuiz() {
+    async function startQuiz() {
       currentIdx = 0;
+      localDraftSavedAt = 0;
+      serverAutosaveRevision = 0;
+      serverAutosaveDirty = false;
       if (!restoreExamDraftLocal()) {
         userAnswersPG = [];
         userAnswersEssay = [];
       }
+      await restoreServerExamProgress();
       showQuestion();
       // Timer 90 menit baru dimulai ketika soal benar-benar dibuka,
       // bukan saat login dan bukan saat menunggu di menu mata pelajaran.
@@ -4829,7 +4919,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
         textarea.value = userAnswersEssay[currentIdx] || '';
         textarea.oninput = (e) => {
           userAnswersEssay[currentIdx] = e.target.value;
-          saveExamDraftLocal();
+          scheduleServerAutosave();
         };
 
         contentArea.appendChild(textarea);
@@ -4840,7 +4930,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
       document.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
       userAnswersPG[currentIdx] = selectedIdx;
-      saveExamDraftLocal();
+      scheduleServerAutosave();
     }
 
     function prevQuestion() {
@@ -4942,6 +5032,8 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
         }
       }
 
+      // Kirim snapshot autosave terakhir sebelum submission final; bila gagal, payload final tetap dikirim dan server menjadi sumber utama.
+      await flushServerAutosave();
       examFinished = true;
       examSecurityArmed = false;
       stopAutoTranslateProtection();
