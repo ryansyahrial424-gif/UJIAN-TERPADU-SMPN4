@@ -1185,7 +1185,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       const data = await callSupabaseTeacherApi('teacher-verify-session', {});
       if (!data.valid) throw new Error('Sesi guru Supabase tidak valid.');
       hideAuthGate(); window.dashboardAllowMenuFetch = false; toggleDashboardMenu('panel'); window.dashboardAllowMenuFetch = true;
-      fetchLiveResults(); fetchActiveExamSessions(); startDashboardSync();
+      fetchDashboardRoster(); fetchLiveResults(); fetchActiveExamSessions(); startDashboardSync();
     } catch (err) {
       console.warn('Verifikasi sesi guru gagal:', err); teacherSession = ''; supabaseTeacherSession = '';
       sessionStorage.removeItem('TEACHER_SESSION'); sessionStorage.removeItem('SUPABASE_TEACHER_SESSION');
