@@ -1239,7 +1239,7 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     return callSupabaseTeacherApi('get-student-roster', {}).then(data => {
       const grouped = {};
       (Array.isArray(data.students) ? data.students : []).forEach(student => {
-        const cls = String(student.class_name || '').trim().replace(/^kelas\\s*/i, '');
+        const cls = String(student.class_name || '').trim().replace(/^kelas\s*/i, '');
         const id = String(student.student_id || '').trim();
         if (!cls || !id) return;
         if (!grouped[cls]) grouped[cls] = [];
