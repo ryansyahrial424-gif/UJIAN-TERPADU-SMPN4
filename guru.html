@@ -2853,6 +2853,11 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
         preamble.push(line);continue;
       }
       if(isQuestion(line)){
+        if(sharedContext&&current&&current.type==='pg'&&current.opt.length===0){
+          current.q+=(current.q?'\n':'')+line;
+          sharedContext='';
+          continue;
+        }
         if(current)finish();
         if(sharedContext){preamble=[sharedContext];sharedContext='';}
         startQuestion(mode,line);continue;
