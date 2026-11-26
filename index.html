@@ -4751,6 +4751,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
 
     async function flushServerAutosave() {
       if (serverAutosaveTimer) { clearTimeout(serverAutosaveTimer); serverAutosaveTimer = null; }
+      if (examFinished) return false;
       if (!serverAutosaveDirty) return true;
       if (serverAutosaveInFlight) {
         try { await serverAutosaveInFlight; } catch (e) {}
@@ -4772,6 +4773,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
           serverAutosaveRevision = Math.max(serverAutosaveRevision, Number(result.revision || 0));
           serverAutosaveDirty = true;
           setServerAutosaveStatus('Versi jawaban diperbarui; menyinkronkan ulang…', '#b45309');
+          if (!examFinished) serverAutosaveTimer = setTimeout(() => { void flushServerAutosave(); }, 700);
           return false;
         }
         serverAutosaveDirty = true;
@@ -4781,6 +4783,7 @@ const __INDEX_IMG_6 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATQAAAC9CAI
         serverAutosaveDirty = true;
         setServerAutosaveStatus('Server belum tersambung; cadangan lokal tetap aktif.', '#b45309');
         console.warn('Autosave server gagal sementara:', err);
+        if (!examFinished) serverAutosaveTimer = setTimeout(() => { void flushServerAutosave(); }, 5000);
         return false;
       }).finally(() => { serverAutosaveInFlight = null; });
       return await serverAutosaveInFlight;
