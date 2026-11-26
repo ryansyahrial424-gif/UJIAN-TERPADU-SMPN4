@@ -2705,8 +2705,9 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
     };
     const startQuestion=(type,text)=>{
       const prefix=preamble.length?preamble.join('\n').trim():'';
+      const clean=String(text||'').trim();
       preamble=[];
-      current={type:type||mode,q:[prefix,String(text||'').trim()].filter(Boolean).join('\n'),opt:[],ans:null,points:null};
+      current={type:type||mode,q:(prefix&&clean!==prefix?[prefix,clean].filter(Boolean).join('\n'):(clean||prefix)),opt:[],ans:null,points:null};
     };
     const addOption=(letter,value)=>{
       if(!current||current.type!=='pg')return;
@@ -2759,7 +2760,13 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       if(numbered){
         finish();sawNumbered=true;
         const text=numbered[4]||'';
-        startQuestion(mode,text);
+        const inlineNumbered=splitInlineOptions(text);
+        if(inlineNumbered){
+          startQuestion(mode,inlineNumbered.prefix);
+          inlineNumbered.options.forEach(x=>addOption(x.letter,x.text));
+        }else{
+          startQuestion(mode,text);
+        }
         continue;
       }
       const inline=splitInlineOptions(line);
