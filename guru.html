@@ -2671,35 +2671,42 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       while(parent&&parent!==doc.body){if(parent.matches(selector))return false;parent=parent.parentElement;}
       return true;
     });
-    const lines=[];
+    const lines=[],seenLists=new Set();
+    const addText=(value)=>{
+      String(value||'').replace(/\u00a0/g,' ').split(/\n/).forEach(line=>{const v=line.trim();if(v)lines.push(v);});
+    };
     nodes.forEach(node=>{
       const clone=node.cloneNode(true);
       clone.querySelectorAll('br').forEach(br=>br.replaceWith(doc.createTextNode('\n')));
-      let text=String(clone.textContent||'').replace(/\u00a0/g,' ').trim();
-      // Mammoth omits the visual counter for Word automatic numbering.
-      // Rebuild top-level ordered-list numbering as an explicit question boundary.
       if(node.tagName==='LI'){
         const list=node.parentElement;
-        const hasListItemAncestor=!!node.parentElement?.closest('li');
-        if(list?.tagName==='OL'&&!hasListItemAncestor&&!/^\(?\d{1,3}\)?[.)]\s*/.test(text)){
-          const siblings=Array.from(list.children).filter(child=>child.tagName==='LI');
-          const explicit=Number(node.getAttribute('value'));
-          const start=Number(list.getAttribute('start'))||1;
-          const number=Number.isFinite(explicit)&&explicit>0?explicit:start+siblings.indexOf(node);
-          text=String(number)+'. '+text;
-        }
+        if(!list||seenLists.has(list))return;
+        seenLists.add(list);
+        const rawType=String(list.getAttribute('type')||'').toLowerCase();
+        const listStyle=String(list.getAttribute('style')||'').toLowerCase();
+        const kind=list.tagName==='UL'?'bullet':(/^(a|i)$/.test(rawType)||/lower-alpha|upper-alpha|lower-roman|upper-roman/.test(listStyle)||rawType==='a'?'alpha':(/^[A-ZI]$/.test(list.getAttribute('type')||'')||/upper-alpha|upper-roman/.test(listStyle)?'alpha':'decimal'));
+        lines.push('@@LIST:'+kind+'@@');
+        const siblings=Array.from(list.children).filter(child=>child.tagName==='LI');
+        siblings.forEach(item=>{
+          const itemClone=item.cloneNode(true);
+          itemClone.querySelectorAll('ol,ul').forEach(nested=>nested.remove());
+          itemClone.querySelectorAll('br').forEach(br=>br.replaceWith(doc.createTextNode('\n')));
+          addText('@@ITEM@@'+String(itemClone.textContent||'').trim());
+        });
+        lines.push('@@ENDLIST@@');
+        return;
       }
-      text.split(/\n/).forEach(line=>{const value=line.trim();if(value)lines.push(value);});
+      addText(clone.textContent||'');
     });
     return lines;
   }
   function parseBankSoalWordLines(lines){
-    let mode='pg', current=null, preamble=[], sawNumbered=false;
+    let mode='pg',current=null,preamble=[],sharedContext='';
     const parsed=[],errors=[];
     const finish=()=>{
       if(!current)return;
       current.q=String(current.q||'').trim();
-      current.opt=(current.opt||[]).map(v=>String(v||'').trim()).filter(Boolean);
+      current.opt=(current.opt||[]).filter(v=>String(v||'').trim()).map(v=>String(v).trim());
       if(current.q)parsed.push(current);
       current=null;
     };
@@ -2714,28 +2721,81 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
       const index=letter.toUpperCase().charCodeAt(0)-65;
       current.opt[index]=letter.toUpperCase()+'. '+String(value||'').trim();
     };
-    const splitInlineOptions=(line)=>{
-      const re=/(^|[\s\t])([A-Fa-f])[.)]\s+/g, hits=[];
-      let m;
-      while((m=re.exec(line))!==null){
-        const letterStart=m.index+m[1].length;
-        hits.push({letter:m[2].toUpperCase(),start:letterStart,end:re.lastIndex});
-      }
-      if(hits.length<2||hits[0].letter!=='A')return null;
-      for(let i=0;i<hits.length;i++){
-        if(hits[i].letter!==String.fromCharCode(65+i))return null;
-      }
-      const prefix=line.slice(0,hits[0].start).trim();
-      const options=hits.map((hit,i)=>({
-        letter:hit.letter,
-        text:line.slice(hit.end,i+1<hits.length?hits[i+1].start:line.length).trim()
-      }));
-      if(options.some(x=>!x.text))return null;
-      return {prefix,options};
+    const isQuestion=(value)=>{
+      const t=String(value||'').trim();
+      return /[?？]\s*$/.test(t)||/(?:\.{2,}|…+)\s*$/.test(t)||/\b(?:berapa|apa|siapa|mengapa|bagaimana|manakah|persamaan|perbedaan|prediksi|kerangka|urutan|paling logis|yang tepat|yang benar|majas apakah|jelaskan)\b/i.test(t);
     };
+    const isIntro=(value)=>{
+      const t=String(value||'').trim();
+      return /^(?:bacalah|teks bacaan|teks berikut|perhatikan(?:\s+rangkaian|\s+informasi|\s+kutipan)?|stimulus)\b/i.test(t)
+        && !/[?？]/.test(t)
+        && !/\b(?:majas apakah|jelaskan|manakah|berapa|yang benar|yang tepat)\b/i.test(t);
+    };
+    const appendContext=(value)=>{
+      const t=String(value||'').trim();
+      if(t){if(current)current.q+=(current.q?'\n':'')+t;else preamble.push(t);}
+    };
+    const processList=(kind,items)=>{
+      const clean=items.map(x=>String(x||'').trim()).filter(Boolean);
+      if(!clean.length)return;
+      if(kind==='alpha'){
+        if(current&&current.type==='pg'){
+          clean.forEach((value,index)=>addOption(String.fromCharCode(65+index),value));
+          return;
+        }
+        if(!current&&clean.length>=3&&isQuestion(clean[0])){
+          startQuestion(mode,clean[0]);
+          clean.slice(1).forEach((value,index)=>addOption(String.fromCharCode(65+index),value));
+          return;
+        }
+        if(current&&current.type==='essay'){
+          clean.forEach((value,index)=>appendContext(String.fromCharCode(97+index)+'. '+value));
+          return;
+        }
+        clean.forEach(appendContext);
+        return;
+      }
+      if(kind==='decimal'&&current&&clean.length>=2&&/(?:kerangka|urutan|rangkaian).*(?:peristiwa|kronologis)|(?:peristiwa|kronologis).*(?:kerangka|urutan)/i.test(current.q)&&!clean.some(isQuestion)){
+        const numbered=clean.map((value,index)=>(index+1)+'. '+value).join('\n');
+        current.q+=(current.q?'\n':'')+numbered;
+        sharedContext=current.q;
+        return;
+      }
+      if(kind==='decimal'&&current&&clean.length>=2&&!clean.some(isQuestion)&&/peristiwa|urutan|kronologis/i.test(current.q)){
+        const numbered=clean.map((value,index)=>(index+1)+'. '+value).join('\n');
+        current.q+=(current.q?'\n':'')+numbered;
+        sharedContext=current.q;
+        return;
+      }
+      clean.forEach(value=>{
+        if(isIntro(value)){
+          if(current)finish();
+          preamble.push(value);
+        }else if(isQuestion(value)){
+          if(current)finish();
+          if(sharedContext){preamble=[sharedContext];sharedContext='';}
+          startQuestion(mode,value);
+        }else{
+          appendContext(value);
+        }
+      });
+    };
+    let listKind=null,listItems=[];
     for(let ix=0;ix<lines.length;ix++){
-      const line=String(lines[ix]||'').replace(/\u00a0/g,' ').replace(/[ \t]+/g,' ').trim();
-      if(!line)continue;
+      const raw=String(lines[ix]||'').replace(/\u00a0/g,' ').trim();
+      if(!raw)continue;
+      if(raw.startsWith('@@LIST:')&&raw.endsWith('@@')){
+        if(listKind)processList(listKind,listItems);
+        listKind=raw.slice(7,-2).toLowerCase();listItems=[];continue;
+      }
+      if(raw==='@@ENDLIST@@'){
+        if(listKind)processList(listKind,listItems);
+        listKind=null;listItems=[];continue;
+      }
+      if(raw.startsWith('@@ITEM@@')){
+        listItems.push(raw.slice(8).trim());continue;
+      }
+      const line=raw.replace(/[ \t]+/g,' ').trim();
       if(/^(?:(?:[A-H]|[IVX]+)[.)]\s*)?(?:BAGIAN\s+[A-H]\s*[:.)-]?\s*)?(?:SOAL\s+)?(?:PILIHAN\s+GANDA|PILGAN|PG)\b\s*[:.-]?$/i.test(line)){
         finish();mode='pg';continue;
       }
@@ -2743,74 +2803,66 @@ body{background:linear-gradient(135deg,#07152a 0 17%,#eef4fa 17% 100%)!important
         finish();mode='essay';continue;
       }
       const key=line.match(/^(?:kunci(?:\s+jawaban)?|jawaban(?:\s+benar)?|answer|ans)\s*[:= -]\s*([A-F])\b/i);
-      if(key){
-        if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
-        if(current)current.ans=key[1].toUpperCase();
-        else errors.push('Baris '+(ix+1)+': kunci jawaban tidak dapat dikaitkan dengan soal.');
-        continue;
-      }
+      if(key){if(current)current.ans=key[1].toUpperCase();else errors.push('Baris '+(ix+1)+': kunci jawaban tidak dapat dikaitkan dengan soal.');continue;}
       const score=line.match(/^(?:skor(?:\s+soal)?|bobot(?:\s+nilai)?|poin|nilai\s+soal)\s*[:= -]\s*(\d+(?:[.,]\d+)?)\s*$/i);
-      if(score){
-        if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
-        if(current)current.points=Number(score[1].replace(',','.'));
-        else errors.push('Baris '+(ix+1)+': poin tidak dapat dikaitkan dengan soal.');
-        continue;
-      }
+      if(score){if(current)current.points=Number(score[1].replace(',','.'));else errors.push('Baris '+(ix+1)+': poin tidak dapat dikaitkan dengan soal.');continue;}
       const numbered=line.match(/^(?:(?:soal|nomor)\s*)?(?:\((\d{1,3})\)|(\d{1,3})[.)]|(?:soal|nomor)\s*(\d{1,3})\s*[:.)-])\s*(.*)$/i);
       if(numbered){
-        finish();sawNumbered=true;
         const text=numbered[4]||'';
-        const inlineNumbered=splitInlineOptions(text);
-        if(inlineNumbered){
-          startQuestion(mode,inlineNumbered.prefix);
-          inlineNumbered.options.forEach(x=>addOption(x.letter,x.text));
+        if(isIntro(text)){
+          if(current)finish();
+          preamble.push(text);
         }else{
+          if(current)finish();
+          if(sharedContext){preamble=[sharedContext];sharedContext='';}
           startQuestion(mode,text);
         }
         continue;
       }
-      const inline=splitInlineOptions(line);
-      if(inline){
-        if(inline.prefix){
-          if(!current)startQuestion(mode,inline.prefix);
-          else current.q+=(current.q?'\n':'')+inline.prefix;
-        }else if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
-        if(!current){
-          errors.push('Baris '+(ix+1)+': pilihan A-F ditemukan tanpa teks pertanyaan sebelumnya.');
-          continue;
+      const inline=(value)=>{
+        const re=/(^|[\s\t])([A-Fa-f])[.)]\s+/g,hits=[];let m;
+        while((m=re.exec(value))!==null)hits.push({letter:m[2].toUpperCase(),start:m.index+m[1].length,end:re.lastIndex});
+        if(hits.length<2||hits[0].letter!=='A')return null;
+        for(let i=0;i<hits.length;i++)if(hits[i].letter!==String.fromCharCode(65+i))return null;
+        const prefix=value.slice(0,hits[0].start).trim();
+        const options=hits.map((hit,i)=>({letter:hit.letter,text:value.slice(hit.end,i+1<hits.length?hits[i+1].start:value.length).trim()}));
+        return options.some(x=>!x.text)?null:{prefix,options};
+      };
+      const inlineOptions=inline(line);
+      if(inlineOptions){
+        if(inlineOptions.prefix){
+          if(!current&&isQuestion(inlineOptions.prefix))startQuestion(mode,inlineOptions.prefix);
+          else appendContext(inlineOptions.prefix);
         }
-        inline.options.forEach(x=>addOption(x.letter,x.text));
+        if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
+        if(current&&current.type==='pg')inlineOptions.options.forEach(x=>addOption(x.letter,x.text));
+        else if(current)inlineOptions.options.forEach(x=>appendContext(x.letter.toLowerCase()+'. '+x.text));
+        else errors.push('Baris '+(ix+1)+': opsi ditemukan tanpa teks pertanyaan.');
         continue;
       }
       const option=line.match(/^\(?([A-Fa-f])\)?[.)]\s*(.+)$/);
       if(option){
         if(!current&&preamble.length)startQuestion(mode,preamble.join('\n'));
-        if(!current){
-          errors.push('Baris '+(ix+1)+': pilihan '+option[1].toUpperCase()+' ditemukan sebelum teks pertanyaan.');
-        }else if(current.type==='pg'){
-          addOption(option[1],option[2]);
-        }else if(option[1]===option[1].toLowerCase()){
-          current.q+=(current.q?'\n':'')+option[1]+'. '+option[2].trim();
-        }else{
-          errors.push('Baris '+(ix+1)+': opsi huruf besar ditemukan pada bagian esai.');
-        }
+        if(current&&current.type==='pg')addOption(option[1],option[2]);
+        else if(current)appendContext(option[1].toLowerCase()+'. '+option[2]);
+        else errors.push('Baris '+(ix+1)+': opsi ditemukan tanpa teks pertanyaan.');
         continue;
       }
-      if(!current){
-        if(sawNumbered)startQuestion(mode,line);
-        else preamble.push(line);
-        continue;
+      if(isIntro(line)){
+        if(current)finish();
+        preamble.push(line);continue;
       }
-      if(current.ans!==null||current.points!==null){
-        finish();startQuestion(mode,line);continue;
+      if(isQuestion(line)){
+        if(current)finish();
+        if(sharedContext){preamble=[sharedContext];sharedContext='';}
+        startQuestion(mode,line);continue;
       }
-      current.q+=(current.q?'\n':'')+line;
+      appendContext(line);
     }
+    if(listKind)processList(listKind,listItems);
     finish();
-    if(!parsed.length&&preamble.length){
-      startQuestion(mode,preamble.join('\n'));finish();
-    }
-    if(!parsed.length)errors.push('Belum ada soal yang berhasil dikenali. Pastikan isi dokumen berupa teks yang dapat diseleksi, bukan hanya gambar hasil pindai.');
+    if(!parsed.length&&preamble.length){startQuestion(mode,preamble.join('\n'));finish();}
+    if(!parsed.length)errors.push('Belum ada soal yang berhasil dibaca. Dokumen mungkin berupa gambar pindai atau format teks yang tidak terbaca.');
     return {parsed,errors};
   }
 
